@@ -109,11 +109,15 @@ Start_Script() {
 
 	ProgramValues.PID 					:= DllCall("GetCurrentProcessId")
 
-	ProgramValues.Debug := (A_IsCompiled)?(0):(ProgramValues.Debug) ; Prevent from enabling debug on compiled executable
 	if FileExist(A_ScriptDir "/ENABLE_DEBUG.txt") {
 		FileRead, fileContent,% A_ScriptDir "/ENABLE_DEBUG.txt"
-		fileContent := StrReplace(fileContent, "`n", "")
-		ProgramValues.Debug := fileContent
+		; Begin ./ENABLED_DEBUG.txt with debug:true and add log strings beginning next line like normal
+		debugRegex := "(?:^debug:)(true|false)([\s\S]*)"
+		if (RegExMatch(fileContent, debugRegex, debugPat)) {
+			ProgramValues.Debug := (debugPat1 = "true") ? 1 : 0
+			ProgramValues.DebugTxt := debugPat2
+		}
+		ProgramValues.Debug := (A_IsCompiled)?(0):(ProgramValues.Debug) ; Prevent from enabling debug on compiled executable
 	}
 ;	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -190,29 +194,7 @@ Start_Script() {
 	Gui_Trades("CREATE")
 
 	if ( ProgramValues["Debug"] ) {
-		; trade / No qual / Level
-		str := "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade quality: Hi, I would like to buy your level 10 11% Faster Attacks Support listed for 5 alteration in Legacy (stash tab """"Shop: Gems""""; position: left 10, top 11) Offering 1alch?"
-
-		; trade / No qual / Level / Unpriced
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade quality unpriced: Hi, I would like to buy your level 20 21% Faster Attacks Support in Beta Standard (stash tab """"Shop: poe.trade unpriced""""; position: left 1, top 2)"
-
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade currency: Hi, I'd like to buy your 566 chaos for my 7 exalted in Legacy."
-
-		; app / No qual / Level
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality: wtb Faster Attacks Support (30/31%) listed for 1 Orb of Alteration in standard (stash """"Shop: poeapp 1""""; left 30, top 21)"
-
-		; app / No qual / Level / Unpriced
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality unpriced other: wtb Faster Attacks Support (40/41%) in standard (stash """"Shop: poeapp 1""""; left 40, top 21)"
-
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality unpriced other: wtb Faster Attacks Support (40/41%) in standard (stash """"Shop: poeapp 1""""; left 40, top 21)"
-
-		Filter_Logs_Message(str)
+		Filter_Logs_Message(ProgramValues.DebugTxt)
 	}
 
 	Gui_Trades_Load_Pending_Backup()
@@ -6689,6 +6671,16 @@ Fade_Tray_Notification() {
 	Gui, TrayNotification:Destroy
 }
 
+Pause_Msg(msg = "") {
+	if (msg != "") {
+		MsgBox,, Paused,% msg
+	}
+	Pause
+}
+
+if (ProgramValues.Debug) {
+	Pause::Pause
+}
 
 #Include %A_ScriptDir%/Resources/AHK/
 #Include BinaryEncodingDecoding.ahk
