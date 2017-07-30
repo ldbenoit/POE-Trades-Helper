@@ -761,15 +761,15 @@ Gui_Trades(mode="", tradeInfos="") {
 				    	      			, [0, SkinAssets.Tab_Press, "", colorTabPress, "", pngTransColor]				; pressed
 							  			, [0, SkinAssets.Tab_Active, "", colorTabActive, "", pngTransColor] ]			; disabled (defaulted)
 
-		IBStyle_TabMsg :=					[ [0, SkinAssets.Tab_Inactive, "", "Lime", "", pngTransColor]			; normal
-				              			, [0, SkinAssets.Tab_Hover, "", "Lime", "", pngTransColor]				; hover
-				    	      			, [0, SkinAssets.Tab_Press, "", "Lime", "", pngTransColor]				; pressed
-							  			, [0, SkinAssets.Tab_Active, "", "Lime", "", pngTransColor] ]			; disabled (defaulted)
+		IBStyle_TabJoined :=					[ [0, SkinAssets.TabJoined_Inactive, "", colorTabInactive, "", pngTransColor]			; normal
+				              			, [0, SkinAssets.TabJoined_Hover, "", colorTabHover, "", pngTransColor]				; hover
+				    	      			, [0, SkinAssets.TabJoined_Press, "", colorTabPress, "", pngTransColor]				; pressed
+							  			, [0, SkinAssets.TabJoined_Active, "", colorTabActive, "", pngTransColor] ]			; disabled (defaulted)
 
-		IBStyle_TabJoined :=					[ [0, SkinAssets.Tab_Inactive, "", "Red", "", pngTransColor]			; normal
-				              			, [0, SkinAssets.Tab_Hover, "", "Red", "", pngTransColor]				; hover
-				    	      			, [0, SkinAssets.Tab_Press, "", "Red", "", pngTransColor]				; pressed
-							  			, [0, SkinAssets.Tab_Active, "", "Red", "", pngTransColor] ]			; disabled (defaulted)							
+		IBStyle_TabMsg :=					[ [0, SkinAssets.TabMsg_Inactive, "", colorTabInactive, "", pngTransColor]			; normal
+				              			, [0, SkinAssets.TabMsg_Hover, "", colorTabHover, "", pngTransColor]				; hover
+				    	      			, [0, SkinAssets.TabMsg_Press, "", colorTabPress, "", pngTransColor]				; pressed
+							  			, [0, SkinAssets.TabMsg_Active, "", colorTabActive, "", pngTransColor] ]			; disabled (defaulted)
 
 		IBStyle_Arrow_Left :=			[ [0, SkinAssets.Arrow_Left_Normal, "", colorButtonNormal, "", pngTransColor]
 				              			, [0, SkinAssets.Arrow_Left_Hover, "", colorButtonHover, "", pngTransColor]
@@ -5457,7 +5457,7 @@ Load_Skin_Assets() {
 	SkinAssets 			:= {}
 	skinFolder 			:= ProgramValues.Skins_Folder "\" ProgramSettings.Active_Skin
 	assetsFile 		 	:= skinFolder "\Assets.ini"
-	sections := ["Arrow_Left","Arrow_Right","Button_OneThird","Button_TwoThird","Button_ThreeThird","Button_Special","Close_Tab","Tab","Misc"]
+	sections := ["Arrow_Left","Arrow_Right","Button_OneThird","Button_TwoThird","Button_ThreeThird","Button_Special","Close_Tab","Tab","Misc","TabJoined","TabMsg"]
 	for id, sectName in sections {
 		keysInThisSection := []
 		IniRead, keysAndValue,% assetsFile,% sectName
@@ -6014,6 +6014,14 @@ Extract_Skin_Files() {
 	FileInstall, Resources\Skins\White\TabActive.png,% skinFolder "\White\TabActive.png", 1
 	FileInstall, Resources\Skins\White\TabHover.png,% skinFolder "\White\TabHover.png", 1
 	FileInstall, Resources\Skins\White\TabInactive.png,% skinFolder "\White\TabInactive.png", 1
+
+	FileInstall, Resources\Skins\White\TabJoinedActive.png,% skinFolder "\White\TabJoinedActive.png", 1
+	FileInstall, Resources\Skins\White\TabJoinedHover.png,% skinFolder "\White\TabJoinedHover.png", 1
+	FileInstall, Resources\Skins\White\TabJoinedInactive.png,% skinFolder "\White\TabJoinedInactive.png", 1
+
+	FileInstall, Resources\Skins\White\TabMsgActive.png,% skinFolder "\White\TabMsgActive.png", 1
+	FileInstall, Resources\Skins\White\TabMsgHover.png,% skinFolder "\White\TabMsgHover.png", 1
+	FileInstall, Resources\Skins\White\TabMsgInactive.png,% skinFolder "\White\TabMsgInactive.png", 1
 
 	FileInstall, Resources\Skins\White\Background.png,% skinFolder "\White\Background.png", 1
 	FileInstall, Resources\Skins\White\Header.png,% skinFolder "\White\Header.png", 1
