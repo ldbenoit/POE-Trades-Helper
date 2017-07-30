@@ -276,7 +276,7 @@ Filter_Logs_Message(message) {
 /*		Filter the logs message to retrieve the required informations we need
 			and send them to the Trades GUI if it is a trade whisper.
  */
-	global ProgramSettings, TradesGUI_Values, Trading_Leagues
+	global ProgramSettings, TradesGUI_Values, Trading_Leagues, programValues
 
 	Loop, Parse, message, `n ; For each new individual line since last check
 	{
@@ -587,7 +587,7 @@ Filter_Logs_Message(message) {
 			}
 		}
 		; Check if a buyer has joined or left the area 
-		areaRegexStr := (ProgramValues["Debug"] != 0 )
+		areaRegexStr := (ProgramValues["Debug"])
 			? ("^(?:[^ ]+ ){6}(\d+)\](?:.*) : (.*?) (?:has) (joined|left) (?:the area.*)") ; matches ' : {name} has {joined|left} ..' from chat as well 
 			: ("^(?:[^ ]+ ){6}(\d+)\] : (.*?) (?:has) (joined|left) (?:the area.*)") 
 
@@ -1335,7 +1335,9 @@ Gui_Trades_SetActiveTab_Func(tabID) {
 			GuiControl, Disable,% TradesGUI_Controls["Tab_" A_Index] ; Disable will highlight the tab
 		}
 		else {
-			GuiControl, Enable,% TradesGUI_Controls["Tab_" A_Index]
+			GuiControl, Enable,% TradesGUI_Controls["TabJoined_" A_Index]
+			GuiControl, Enable,% TradesGUI_Controls["TabMsg_" A_Index]
+			GuiControl, Enable,% TradesGUI_Controls["TabDefault_" A_Index]
 		}
 	}
 
@@ -5142,6 +5144,12 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 
 	if (A_GUI = "Trades") {
 
+		GuiControlGet, hasNewMsg, Trades:,% TradesGUI_Controls["NewMsg_Slot_" btnID]
+		if (hasNewMsg && btnType = "OtherSlot") {
+			GUI_Trades_Set_NewMsg(btnID, 0)
+			GUI_Trades_Update_Tab_Style(btnId)
+		}
+
 		btnHandler := (btnType="CustomBtn")?(TradesGUI_Controls["Button_Custom_" btnID])
 				     :(btnType="GoRight")?(TradesGUI_Controls["Arrow_Right"])
 				     :(btnType="GoLeft")?(TradesGUI_Controls["Arrow_Left"])
@@ -5153,7 +5161,7 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 				     :(btntype="BtnClose")?(TradesGUI_Controls["Button_Close"])
 				     :(btntype="UnicodeBtn")?(TradesGUI_Controls["Button_Unicode_" btnID])
 				     :("ERROR")
-
+				     
 /*	Used for the pre 1.12 skinning system.
 	Would switch the button asset based on hover/click state
 
@@ -5197,8 +5205,6 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 			GuiControlGet, content,Trades:,% btnHandler
 			ctrlPos := Get_Control_Coords("Trades", btnHandler)
 			WinGetPos, tradesXPOS, tradesYPOS
-			; Tooltip for other text needs to be lower so we get the right GUIControl on click
-			ctrlPos.Y := (btnType = "OtherSlot") ? ctrlPos.Y+15 : ctrlPos.Y
 			ToolTip, % content,% tradesXPOS+ctrlPOS.X,% tradesYPOS+ctrlPOS.Y
 			MouseGetPos, mouseX, mouseY
 			global Remove_ToolTip_OnMouseMove_Values := {X:mouseX, Y:mouseY, Treshold_X:100, Treshold_Y:10}
@@ -5248,14 +5254,6 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 
 WM_LBUTTONDOWN(wParam, lParam, msg, hwnd) {
 	global TradesGUI_Values, ProgramValues, TradesGUI_Controls, ProgramSettings
-	RegExMatch(A_GuiControl, "\D+", btnType)
-	RegExMatch(A_GuiControl, "\d+", btnID)
-
-	; Remove message notification when user clicks on other_slot
-	if (btnType = "OtherSlot") {
-		GUI_Trades_Set_NewMsg(btnID, 0)
-		GUI_Trades_Update_Tab_Style(btnId)
-	}
 /*	Used for the pre 1.12 skinning system.
 	Would switch the button asset based on hover/click state
 
