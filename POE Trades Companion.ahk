@@ -33,10 +33,6 @@ DllCall( "RegisterShellHookWindow", UInt,Hwnd )
 MsgNum := DllCall( "RegisterWindowMessage", Str,"SHELLHOOK" )
 OnMessage( MsgNum, "ShellMessage")
 
-;Constants
-global JOINED := 1 
-global NEW_MESSAGE := 2
-
 Start_Script()
 Return
 
@@ -44,32 +40,32 @@ Start_Script() {
 /*
 */
 ;	Global objects declaration
-	global ProgramValues 				:= Object() ; Specific to the program's informations
-	global ProgramFonts 				:= Object() ; Fonts private to the program
-	global ProgramSettings 				:= Object() ; Settings from the local .ini
-	global RunParameters 				:= Object() ; Run-time parameters
+	global DebugValues 					:= {} ; Debug values
 
-	global GameSettings 				:= Object() ; Settings from the game .ini
+	global ProgramValues 				:= {} ; Specific to the program's informations
+	global ProgramFonts 				:= {} ; Fonts private to the program
+	global ProgramSettings 				:= {} ; Settings from the local .ini
+	global RunParameters 				:= {} ; Run-time parameters
 
-	global TradesGUI_Values 			:= Object() ; TradesGUI various infos
-	global TradesGUI_Controls 			:= Object() ; TradesGUI controls handlers
+	global GameSettings 				:= {} ; Settings from the game .ini
 
-	global Stats_TradeCurrencyNames 	:= Object() ; Abridged currency names from poe.trade
-	global Stats_RealCurrencyNames 		:= Object() ; All currency full names
+	global TradesGUI_Values 			:= {} ; TradesGUI various infos
+	global TradesGUI_Controls 			:= {} ; TradesGUI controls handlers
 
-	global Trading_Leagues 				:= Get_Active_Trading_Leagues()
+	global Stats_TradeCurrencyNames 	:= {} ; Abridged currency names from poe.trade
+	global Stats_RealCurrencyNames 		:= {} ; All currency full names
+
+	global Trading_Leagues 				:= [] ; Contains trading leagues
 
 ;	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	; ProgramValues.Keep_Backup 		:= 1 	; Keep Trades_Backup.ini instead of deleting it on load.
-	; ProgramValues.NoSplash 			:= 1 	; Skip the "Reloading to request..." GUI.
+	; ProgramValues.Keep_Backup 			:= 1 	; Keep Trades_Backup.ini instead of deleting it on load.
 	ProgramSettings.Screen_DPI 			:= Get_DPI_Factor() 
 
 	Handle_CommandLine_Parameters()
 	MyDocuments 						:= (RunParameters.MyDocuments)?(RunParameters.MyDocuments):(A_MyDocuments)
 
 	ProgramValues.Name 					:= "POE Trades Companion"
-	ProgramValues.Version 				:= "1.12.BETA_1"
-	ProgramValues.Debug 				:= "0"
+	ProgramValues.Version 				:= "1.12.BETA_5"
 
 	ProgramValues.Updater_File 			:= "POE-TC-Updater.exe"
 	ProgramValues.Updater_Link 			:= "https://raw.githubusercontent.com/lemasato/POE-Trades-Companion/master/Updater_v2.exe"
@@ -95,10 +91,10 @@ Start_Script() {
 	ProgramValues.Logs_Folder 			:= ProgramValues.Local_Folder "\Logs"
 	ProgramValues.Skins_Folder 			:= ProgramValues.Local_Folder "\Skins"
 	ProgramValues.Fonts_Folder 			:= ProgramValues.Local_Folder "\Fonts"
-	ProgramValues.Fonts_Settings_File	:= ProgramValues.Fonts_Folder "\Settings.ini"
 	ProgramValues.Data_Folder			:= ProgramValues.Local_Folder "\Data"
 	ProgramValues.Others_Folder 		:= ProgramValues.Local_Folder "\Others"
 
+	ProgramValues.Fonts_Settings_File	:= ProgramValues.Fonts_Folder "\Settings.ini"
 	ProgramValues.Ini_File 				:= ProgramValues.Local_Folder "\Preferences.ini"
 	ProgramValues.Logs_File 			:= ProgramValues.Logs_Folder "\" A_YYYY "-" A_MM "-" A_DD "_" A_Hour "-" A_Min "-" A_Sec ".txt"
 	ProgramValues.Changelogs_File 		:= ProgramValues.Logs_Folder "\changelogs.txt"
@@ -113,12 +109,6 @@ Start_Script() {
 
 	ProgramValues.PID 					:= DllCall("GetCurrentProcessId")
 
-	if FileExist(A_ScriptDir "/ENABLE_DEBUG.txt") {
-		FileRead, fileContent,% A_ScriptDir "/ENABLE_DEBUG.txt"
-		fileContent := StrReplace(fileContent, "`n", "")
-		ProgramValues.Debug := fileContent
-	}
-	ProgramValues.Debug := (A_IsCompiled)?(0):(ProgramValues.Debug) ; Prevent from enabling debug on compiled executable
 ;	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 	GroupAdd, POEGame, ahk_exe PathOfExile.exe
@@ -130,6 +120,10 @@ Start_Script() {
 
 ;	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+;	Debug options
+	Load_Debug_JSON()
+
+;	Data currency
 	FileRead, allCurrency,% ProgramValues.Data_Folder "\Resources\Data\Currency_All.txt"
 	Loop, Parse, allCurrency, `n`r
 	{
@@ -139,6 +133,7 @@ Start_Script() {
 	}
 	StringTrimRight, Stats_RealCurrencyNames, Stats_RealCurrencyNames, 1 ; Remove last comma
 
+;	Data currency names converter
 	FileRead, JSONFile,% ProgramValues.Data_Folder "\Resources\Data\currencyTradeNames.json"
 	parsedJSON := JSON.Load(JSONFile)
 	Stats_TradeCurrencyNames := parsedJSON.currencyNames.eng
@@ -164,13 +159,13 @@ Start_Script() {
 	Close_Previous_Program_Instance()
 	Tray_Refresh()
 
-;	Updating assets and settings
-	Update_Local_Settings()
-	Extract_Sound_Files()
-	Extract_Skin_Files()
-	Extract_Font_Files()
+	Update_Local_Settings() ; Updating local settings between versions
+
+;	Extracting assets
+	Extract_Assets()
+
 	Install_Font_Files()
-	Extract_Data_Files()
+	Manage_Font_Resources("LOAD")
 	Update_Skin_Preset()
 
 	Set_Local_Settings() ; Reset broken settings
@@ -182,50 +177,45 @@ Start_Script() {
 
 	Create_Tray_Menu()
 	Delete_Old_Logs_Files(10)
+	Load_Skin_Assets()
 
-	Extract_Others_Files()
-	Manage_Font_Resources("LOAD")
-	Check_Update()
-	Do_Once()
+	Check_Update() 
 	Enable_Hotkeys()
+	Get_Active_Trading_Leagues()
+
+;	Opening different GUIs
+	if (DebugValues.settings.open_stats)
+		Gui_Stats()
+	if (DebugValues.settings.open_settings)
+		Gui_Settings()
+	if (DebugValues.settings.open_about)
+		Gui_About()
 
 	; Pre-rendering Trades-GUI
-	Load_Skin_Assets()
-	Gui_Trades("CREATE")
+	if !( DebugValues.settings.no_prerender)
+		Gui_Trades("CREATE")
 
-	if (ProgramValues["Debug"]) {
-		; trade / No qual / Level
-		str := "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade quality: Hi, I would like to buy your level 10 11% Faster Attacks Support listed for 5 alteration in Legacy (stash tab """"Shop: Gems""""; position: left 10, top 11) Offering 1alch?"
-
-		; trade / No qual / Level / Unpriced
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade quality unpriced: Hi, I would like to buy your level 20 21% Faster Attacks Support in Beta Standard (stash tab """"Shop: poe.trade unpriced""""; position: left 1, top 2)"
-
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= "@From poetrade currency: Hi, I'd like to buy your 566 chaos for my 7 exalted in Legacy."
-
-		; app / No qual / Level
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality: wtb Faster Attacks Support (30/31%) listed for 1 Orb of Alteration in standard (stash """"Shop: poeapp 1""""; left 30, top 21)"
-
-		; app / No qual / Level / Unpriced
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality unpriced other: wtb Faster Attacks Support (40/41%) in standard (stash """"Shop: poeapp 1""""; left 40, top 21)"
-
-		str .= "`n" "2016/10/09 21:30:32 105384166 355 [INFO Client 6416] "
-			str .= " @From poeapp quality unpriced other: wtb Faster Attacks Support (40/41%) in standard (stash """"Shop: poeapp 1""""; left 40, top 21)"
-
-		Filter_Logs_Message(str)
+	; Parse debug msgs
+	if (DebugValues.settings.use_chat_logs) {
+		Loop % DebugValues.chatlogs.MaxIndex()
+			Filter_Logs_Message(DebugValues.chatlogs[A_Index])
 	}
 
 	Gui_Trades_Load_Pending_Backup()
 
-	; Gui_Stats()
-	; Gui_Settings()
-	; Gui_About()
 	Logs_Append("DUMP", localSettings)
 	Monitor_Game_Logs()
+}
+
+Load_Debug_JSON() {
+	global DebugValues
+	if !(A_IsCompiled) {
+		FileRead, debugJSON,% A_ScriptDir "\Debug.json"
+		parsed_debugJSON := JSON.Load(debugJSON)
+
+		DebugValues.settings 		:= parsed_debugJSON.settings
+		DebugValues.chatlogs 		:= parsed_debugJSON.chat_logs
+	}
 }
 
 Update_Skin_Preset() {
@@ -286,10 +276,30 @@ Filter_Logs_Message(message) {
  */
 	global ProgramSettings, TradesGUI_Values, Trading_Leagues, programValues
 
+	static poeTradeRegexStr 			:= "(.*)Hi, I would like to buy your (.*) listed for (.*) in (.*)" ; 1: Other, 2: Item, 3: Price, 4: League + Tab + Other
+	static poeTradeUnpricedRegexStr 	:= "(.*)Hi, I would like to buy your (.*) in (.*)" ; 1: Other, 2: Item, 3: League + Tab + Other
+	static poeTradeCurrencyRegexStr		:= "(.*)Hi, I'd like to buy your (.*) for my (.*) in (.*)" ; 1: Other, 2: Currency, 3: Price, 4: League + Tab + Other
+	static poeTradeStashRegexStr 		:= "\(stash tab ""(.*)""; position: left (.*), top (.*)\)(.*)" ; 1: Tab, 2: Left, 3: Top, 4: Other
+	static poTradeQualityRegExStr 		:= "level (.*) (.*)% (.*)" ; 1: Item level, 2: Item quality, 3: Item name
+
+	static poeAppRegExStr 				:= "(.*)wtb (.*) listed for (.*) in (.*)" ; 1: Other, 2: Item, 3: Price, 4: League + Tab + Other
+	static poeAppUnpricedRegexStr 		:= "(.*)wtb (.*) in (.*)" ; 1: Other, 2: Item, 3: League + Tab + Other
+	static poeAppStashRegexStr 			:= "\(stash ""(.*); left (.*), top(.*)\)(.*)" ; 1: Tab, 2: Left, 3: Top, 4: Other
+	static poeAppQualityRegExStr 		:= "(.*) \((.*)/(.*)%\)" ; 1: Item name, 2: Item level, 3: Item quality
+
+	static allRegexStr := {"poeTradeRegexStr":poeTradeRegexStr
+						  ,"poeTradeUnpricedRegexStr":poeTradeUnpricedRegexStr
+						  ,"poeTradeCurrencyRegexStr":poeTradeCurrencyRegexStr
+						  ,"poeAppRegExStr":poeAppRegExStr
+						  ,"poeAppUnpricedRegexStr":poeAppUnpricedRegexStr}
+
+	static areaRegexStr := ("^(?:[^ ]+ ){6}(\d+)\] : (.*?) (?:has) (joined|left) (?:the area.*)") 
+
+
 	Loop, Parse, message, `n ; For each new individual line since last check
 	{
 		; New RegEx pattern matches the trading message, but only from whispers and local chat (for debugging), and specifically ignores global/trade/guild/party chats
-		if ( RegExMatch( A_LoopField, "^(?:[^ ]+ ){6}(\d+)\] (?=[^#$&%]).*@(?:From|De|От кого) (.*?): (.*)", subPat ) )
+		if ( RegExMatch( A_LoopField, "S)^(?:[^ ]+ ){6}(\d+)\] (?=[^#$&%]).*@(?:From|De|От кого) (.*?): (.*)", subPat ) )
 		{
 			; Assigning the sub pattern variables
 			gamePID := subPat1, whispNameFull := subPat2, whispMsg := subPat3
@@ -299,7 +309,7 @@ Filter_Logs_Message(message) {
 
 			if !WinActive("ahk_pid " gamePID) {
 				if ( ProgramSettings.Whisper_Tray ) {
-					Show_Tray_Notification("Whisper from " whispName, whispMsg)
+					Tray_Notifications_Show("Whisper from " whispName, whispMsg)
 				}
 
 				if ( ProgramSettings.Whisper_Flash ) {
@@ -309,31 +319,13 @@ Filter_Logs_Message(message) {
 			}
 
 			whisp := whispName ": " whispMsg "`n"
-			; poeappRegExStr 				:= "(.*)wtb (.*) listed for (.*) in (?:(.*)\(stash ""(.*)""; left (.*), top (.*)\)|Hardcore (.*?)\W|(.*?)\W)(.*)" ; poeapp
-			; poetradeRegExStr 			:= "(.*)Hi, I(?: would|'d) like to buy your (?:(.*) |(.*))(?:listed for (.*)|for my (.*)|) in (?:(.*)\(stash tab ""(.*)""; position: left (.*), top (.*)\)|Hardcore (.*?)\W|(.*?)\W)(.*)" ; poe.trade
-
-			poeTradeRegexStr 			:= "(.*)Hi, I would like to buy your (.*) listed for (.*) in (.*)" ; 1: Other, 2: Item, 3: Price, 4: League + Tab + Other
-			poeTradeUnpricedRegexStr 	:= "(.*)Hi, I would like to buy your (.*) in (.*)" ; 1: Other, 2: Item, 3: League + Tab + Other
-			poeTradeCurrencyRegexStr	:= "(.*)Hi, I'd like to buy your (.*) for my (.*) in (.*)" ; 1: Other, 2: Currency, 3: Price, 4: League + Tab + Other
-			poeTradeStashRegexStr 		:= "\(stash tab ""(.*)""; position: left (.*), top (.*)\)(.*)" ; 1: Tab, 2: Left, 3: Top, 4: Other
-			poTradeQualityRegExStr 		:= "level (.*) (.*)% (.*)" ; 1: Item level, 2: Item quality, 3: Item name
-
-			poeAppRegExStr 				:= "(.*)wtb (.*) listed for (.*) in (.*)" ; 1: Other, 2: Item, 3: Price, 4: League + Tab + Other
-			poeAppUnpricedRegexStr 		:= "(.*)wtb (.*) in (.*)" ; 1: Other, 2: Item, 3: League + Tab + Other
-			poeAppStashRegexStr 		:= "\(stash ""(.*); left (.*), top(.*)\)(.*)" ; 1: Tab, 2: Left, 3: Top, 4: Other
-			poeAppQualityRegExStr 		:= "(.*) \((.*)/(.*)%\)" ; 1: Item name, 2: Item level, 3: Item quality
-
-			allRegexStr := {"poeTradeRegexStr":poeTradeRegexStr
-						   ,"poeTradeUnpricedRegexStr":poeTradeUnpricedRegexStr
-						   ,"poeTradeCurrencyRegexStr":poeTradeCurrencyRegexStr
-						   ,"poeAppRegExStr":poeAppRegExStr
-						   ,"poeAppUnpricedRegexStr":poeAppUnpricedRegexStr}
+			
 			for regExName, regExStr in allRegExStr {
-				if RegExMatch(whisp, "i).*: " regExStr) {
+				if RegExMatch(whisp, "iS).*: " regExStr) {
 					Break
 				}
 			}
-			if RegExMatch(whisp, "i).*: " regExStr, whispPat ) ; Matching pattern found
+			if RegExMatch(whisp, "iS).*: " regExStr, whispPat ) ; Matching pattern found
 			{
 				timeSinceLastTrade := 0
 
@@ -345,14 +337,14 @@ Filter_Logs_Message(message) {
 					whispPat1 := "", whispPat2 := "", whispPat3 := "", whispPat4 := ""
 
 					for id, leagueName in Trading_Leagues {
-						if RegExMatch(endOfWhisper, leagueName "(.*)", endOfWhisperPat) {
+						if RegExMatch(endOfWhisper, "S)" leagueName "(.*)", endOfWhisperPat) {
 							whispLeague 		:= leagueName
 							endOfWhisper 		:= endOfWhisperPat1
 							endOfWhisperPat1 	:= ""
 							Break
 						}
 					}
-					if RegExMatch(endOfWhisper, poeTradeStashRegexStr, stashPat) {
+					if RegExMatch(endOfWhisper, "S)" poeTradeStashRegexStr, stashPat) {
 						whispStash 		:= stashPat1
 						whispStashLeft 	:= stashPat2
 						whispStashTop 	:= stashPat3
@@ -362,7 +354,7 @@ Filter_Logs_Message(message) {
 					else {
 						whispOther2 	:= endOfWhisper
 					}
-					if RegExMatch(whispItem, poTradeQualityRegExStr, itemQualPat) {
+					if RegExMatch(whispItem, "S)" poTradeQualityRegExStr, itemQualPat) {
 						whispItemLevel 	:= itemQualPat1
 						whispItemQual 	:= itemQualPat2
 						whispItemName 	:= itemQualPat3
@@ -381,7 +373,7 @@ Filter_Logs_Message(message) {
 					whispPat1 := "", whispPat2 := "", whispPat3 := ""
 
 					for id, leagueName in Trading_Leagues {
-						if RegExMatch(endOfWhisper, leagueName "(.*)", endOfWhisperPat) {
+						if RegExMatch(endOfWhisper, "S)" leagueName "(.*)", endOfWhisperPat) {
 							whispLeague 		:= leagueName
 							endOfWhisper 		:= endOfWhisperPat1
 							endOfWhisperPat1	:= ""
@@ -389,7 +381,7 @@ Filter_Logs_Message(message) {
 						}
 					}
 
-					if RegExMatch(endOfWhisper, poeTradeStashRegexStr, stashPat) {
+					if RegExMatch(endOfWhisper, "S)" poeTradeStashRegexStr, stashPat) {
 						whispStash 		:= stashPat1
 						whispStashLeft 	:= stashPat2
 						whispStashTop 	:= stashPat3
@@ -400,7 +392,7 @@ Filter_Logs_Message(message) {
 						whispOther2 	:= endOfWhisper
 					}
 
-					if RegExMatch(whispItem, poTradeQualityRegExStr, itemQualPat) {
+					if RegExMatch(whispItem, "S)" poTradeQualityRegExStr, itemQualPat) {
 						whispItemLevel 	:= itemQualPat1
 						whispItemQual 	:= itemQualPat2
 						whispItemName 	:= itemQualPat3
@@ -420,7 +412,7 @@ Filter_Logs_Message(message) {
 					whispPat1 := "", whispPat2 := "", whispPat3 := "", whispPat4 := ""
 
 					for id, leagueName in Trading_Leagues {
-						if RegExMatch(endOfWhisper, leagueName "(.*)", endOfWhisperPat) {
+						if RegExMatch(endOfWhisper, "S)" leagueName "(.*)", endOfWhisperPat) {
 							whispLeague 		:= leagueName
 							endOfWhisper 		:= endOfWhisperPat1
 							endOfWhisperPat1 	:= ""
@@ -428,7 +420,7 @@ Filter_Logs_Message(message) {
 						}
 					}
 
-					if RegExMatch(endOfWhisper, poeTradeStashRegexStr, stashPat) {
+					if RegExMatch(endOfWhisper, "S)" poeTradeStashRegexStr, stashPat) {
 						whispStash 		:= stashPat1
 						whispStashLeft 	:= stashPat2
 						whispStashTop 	:= stashPat3
@@ -452,7 +444,7 @@ Filter_Logs_Message(message) {
 					whispPat1 := "", whispPat2 := "", whispPat3 := "", whispPat4 := ""
 
 					for id, leagueName in Trading_Leagues {
-						if RegExMatch(endOfWhisper, leagueName "(.*)", endOfWhisperPat) {
+						if RegExMatch(endOfWhisper, "S)" leagueName "(.*)", endOfWhisperPat) {
 							whispLeague 		:= leagueName
 							endOfWhisper 		:= endOfWhisperPat1
 							endOfWhisperPat1 	:= ""
@@ -460,7 +452,7 @@ Filter_Logs_Message(message) {
 						}
 					}
 
-					if RegExMatch(endOfWhisper, poeAppStashRegexStr, stashPat) {
+					if RegExMatch(endOfWhisper, "S)" poeAppStashRegexStr, stashPat) {
 						whispStash 		:= stashPat1
 						whispStashLeft 	:= stashPat2
 						whispStashTop 	:= stashPat3
@@ -471,7 +463,7 @@ Filter_Logs_Message(message) {
 						whispOther2 	:= endOfWhisper
 					}
 
-					if RegExMatch(whispItem, poeAppQualityRegExStr, itemQualPat) {
+					if RegExMatch(whispItem, "S)" poeAppQualityRegExStr, itemQualPat) {
 						whispItemName 	:= itemQualPat1
 						whispItemLevel 	:= itemQualPat2
 						whispItemQual 	:= itemQualPat3
@@ -490,7 +482,7 @@ Filter_Logs_Message(message) {
 					whispPat1 := "", whispPat2 := "", whispPat3 := ""
 
 					for id, leagueName in Trading_Leagues {
-						if RegExMatch(endOfWhisper, leagueName "(.*)", endOfWhisperPat) {
+						if RegExMatch(endOfWhisper, "S)" leagueName "(.*)", endOfWhisperPat) {
 							whispLeague 		:= leagueName
 							endOfWhisper 		:= endOfWhisperPat1
 							endOfWhisperPat1 	:= ""
@@ -498,7 +490,7 @@ Filter_Logs_Message(message) {
 						}
 					}
 
-					if RegExMatch(endOfWhisper, poeAppStashRegexStr, stashPat) {
+					if RegExMatch(endOfWhisper, "S)" poeAppStashRegexStr, stashPat) {
 						whispStash 		:= stashPat1
 						whispStashLeft 	:= stashPat2
 						whispStashTop 	:= stashPat3
@@ -509,7 +501,7 @@ Filter_Logs_Message(message) {
 						whispOther2 	:= endOfWhisper
 					}
 
-					if RegExMatch(whispItem, poeAppQualityRegExStr, itemQualPat) {
+					if RegExMatch(whispItem, "S)" poeAppQualityRegExStr, itemQualPat) {
 						whispItemName 	:= itemQualPat1
 						whispItemLevel 	:= itemQualPat2
 						whispItemQual 	:= itemQualPat3
@@ -594,12 +586,9 @@ Filter_Logs_Message(message) {
 				}
 			}
 		}
-		; Check if a buyer has joined or left the area 
-		areaRegexStr := (ProgramValues["Debug"])
-			? ("^(?:[^ ]+ ){6}(\d+)\](?:.*) : (.*?) (?:has) (joined|left) (?:the area.*)") ; matches ' : {name} has {joined|left} ..' from chat as well 
-			: ("^(?:[^ ]+ ){6}(\d+)\] : (.*?) (?:has) (joined|left) (?:the area.*)") 
 
-		if ( RegExMatch( A_LoopField, areaRegexStr, subPat ) ) {
+		; Check if a buyer has joined or left the area 
+		if ( RegExMatch( A_LoopField, "S)" areaRegexStr, subPat ) ) {
 			gamePID := subPat1, whispName := subPat2, areaStatus := subPat3
 			TradesGUI_Values.Last_Whisper := whispName
 			; Check if player has pending trade
@@ -616,9 +605,9 @@ Filter_Logs_Message(message) {
 						; if ( ProgramSettings.Joined_Toggle = 1 ) && FileExist(ProgramSettings.Joined_Sound_Path) { 
 						; 	SoundPlay,% ProgramSettings.Joined_Sound_Path
 						; }
-						if ( ProgramSettings.Trade_Toggle = 1 ) && FileExist(ProgramSettings.Trade_Sound_Path) { ; Play the sound set for trades
-							SoundPlay,% ProgramSettings.Trade_Sound_Path
-						}
+						; if ( ProgramSettings.Trade_Toggle = 1 ) && FileExist(ProgramSettings.Trade_Sound_Path) { ; Play the sound set for trades
+						; 	SoundPlay,% ProgramSettings.Trade_Sound_Path
+						; }
 						if !WinActive("ahk_pid " gamePID) {
 							if ( ProgramSettings.Whisper_Flash ) {
 							gameHwnd := WinExist("ahk_pid " gamePID)
@@ -647,54 +636,63 @@ Monitor_Game_Logs(mode="") {
 ;			Retrieve the logs file location by adding \Logs\Client.txt to the PoE executable path
 ;			Monitor the logs file, waiting for new whispers
 ;			Upon receiving a poe.trade whisper, pass the trades infos to Gui_Trades()
-	static
-	global RunParameters
-	global POEGameArray
+	global RunParameters, POEGameArray, TradesGUI_Values
 
+	static logsFile, fileObj, sleepTime, timeSinceLastTrade, timer
+
+;	Close file obj when an error occured
 	if (mode = "CLOSE") {
 		fileObj.Close()
 		Return
 	}
 
-	if ( RunParameters.GamePath ) {
-		WinGet, tempExeLocation, ProcessPath,% "ahk_id " element
-		SplitPath,% RunParameters.GamePath, ,directory
-		logsFile := directory "\logs\Client.txt"
-	}
-	else {
-		r := Get_All_Games_Instances()
-		if ( r = "EXE_NOT_FOUND" ) {
-			Gui_Trades_Redraw("EXE_NOT_FOUND", {noSplash:1})
+;	logsFile has not been created yet
+	if (!logsFile || !FileExist(logsFile)) {
+		if ( RunParameters.GamePath ) {
+			WinGet, tempExeLocation, ProcessPath,% "ahk_id " element
+			SplitPath,% RunParameters.GamePath, ,directory
+			logsFile := directory "\logs\Client.txt"
 		}
 		else {
-			logsFile := r
-			Gui_Trades_Set_Position()
+			r := Get_All_Games_Instances()
+			if ( r = "EXE_NOT_FOUND" ) {
+				Gui_Trades_Redraw("EXE_NOT_FOUND", {noSplash:1})
+			}
+			else {
+				logsFile := r
+				try Gui_Trades_Set_Position()
+			}
 		}
+		Logs_Append(A_ThisFunc, {File:logsFile})
+		fileObj := FileOpen(logsFile, "r")
+		fileObj.Read()
 	}
-	Logs_Append(A_ThisFunc, {File:logsFile})
 
-	fileObj := FileOpen(logsFile, "r")
-	fileObj.pos := fileObj.length
-	Loop {
-		if !FileExist(logsFile) || ( fileObj.pos > fileObj.length ) || ( fileObj.pos = -1 ) {
-			Logs_Append("Monitor_Game_Logs_Break", {Pos:fileObj.pos, Length:fileObj.length})
-			Break
-		}
-		if ( fileObj.pos < fileObj.length ) {
-			lastMessage := fileObj.Read() ; Stores the last message into a variable
-			Filter_Logs_Message(lastMessage)
-		}
-		sleepTime := (timeSinceLastTrade>300)?(500):(100)
-		timeSinceLastTrade += 1*(sleepTime/1000)
-		Sleep %sleepTime%
+;	new line appeared
+	if ( fileObj.pos < fileObj.length ) {
+		newLogs := fileObj.Read()
+		Filter_Logs_Message(newLogs)
 	}
-	Show_Tray_Notification("An issue with the logs file occured!", "It could be one of the following reasons: "
+;	error occured with logs file
+	else if ( !FileExist(logsFile) || (fileObj.pos > fileObj.length) || (fileObj.pos = -1) ) {
+		Logs_Append("Monitor_Game_Logs_Break", {Pos:fileObj.pos, Length:fileObj.length})
+		Tray_Notifications_Show("An issue with the logs file occured!", "It could be one of the following reasons: "
 		. "`n- The file doesn't exist anymore."
 		. "`n- Content from the file was deleted."
 		. "`n- The file object used by the program was closed."
 		. "`n`nThe logs monitoring function will be restarting in 5 seconds.")
-	sleep 5000
-	Restart_Monitor_Game_Logs()
+		SetTimer, Restart_Monitor_Game_Logs, -5000
+	}
+
+;	set clever timer, based on when the latest trade whisper was received
+	timeSinceLastTrade := A_Now
+	EnvSub, timeSinceLastTrade,% TradesGUI_Values.Last_Trade_Time, Seconds
+	timer := (!timer)?(400) ; Start at this value
+			:( IsBetween(timeSinceLastTrade, 300, 3600) )?(400) ; when no trade received for 5mins
+			:( timeSinceLastTrade > 3600 )?(600) ; when no trade received for over an hour
+			:(200) ; Otherwise, this value
+	SetTimer,% A_ThisFunc, -%timer%
+	Return
 }
 
 ;==================================================================================================================
@@ -744,7 +742,8 @@ Gui_Trades(mode="", tradeInfos="") {
 	btnUnicodePos := "", useSmallerButtons := ""
 
 	if ( mode = "CREATE" ) {
-		Load_Skin_Assets()
+
+		TradesGUI_Values.Created 	:= false
 
 		colorTitleActive 			:= (ProgramSettings.Color_Title_Active = "000000")?("Black"):("0x" ProgramSettings.Color_Title_Active)
 		colorTitleInactive 			:= (ProgramSettings.Color_Title_Inactive = "000000")?("Black"):("0x" ProgramSettings.Color_Title_Inactive)
@@ -839,7 +838,7 @@ Gui_Trades(mode="", tradeInfos="") {
 		maxTabsRendered := (!maxTabsRendered)?(maxTabsStage1):(maxTabsRendered)
 
 		if ( maxTabsRendered > maxTabsStage2 ) { 
-			Show_Tray_Notification(ProgramValues.Name, "Current tabs limit reached." . "`nRendering more tabs")
+			Tray_Notifications_Show(ProgramValues.Name, "Current tabs limit reached." . "`nRendering more tabs")
 		}
 
 		TradesGUI_Values["Max_Tabs_Rendered"] := maxTabsRendered
@@ -1140,6 +1139,9 @@ Gui_Trades(mode="", tradeInfos="") {
 		TradesGUI_Values.Tabs_Count_Increased 		:= tabsCountIncreased
 		TradesGUI_Values.Tabs_Count_Changed 		:= tabsCountChanged
 
+		if (mode = "UPDATE" && tabsCountIncreased)
+			TradesGUI_Values.Last_Trade_Time := A_Now
+
 ; - - - - - No tab is activated, focus the first tab
 		activeTabID := Gui_Trades_Get_Tab_ID()
 		if (tabsCount) { ; Trading tabs exists
@@ -1272,6 +1274,8 @@ Gui_Trades(mode="", tradeInfos="") {
 		OnMessage(0x204, "WM_RBUTTONDOWN")
 
 		dpiFactor := ProgramSettings.Screen_DPI, showX := guiWidth-49
+
+		TradesGUI_Created := true
 	}
 
 ; - - - - - Adjust position, with Overlay mode
@@ -1418,8 +1422,6 @@ Gui_Trades_Close_Tab(tabID="") {
 	tabsRange			:= Gui_Trades_Get_Tabs_Range()
 	tabToClose 			:= (tabID)?(tabID):(TradesGUI_Values.Active_Tab)
 
-	tooltip % tabToClose
-
 	isNotInFirstRow := (tabsRange.Last = currentTabsCount)
 	
 	if (isNotInFirstRow) { ; Hide the tab, before removing it
@@ -1564,31 +1566,44 @@ Gui_Trades_Minimize_Func(state="", skipAnimation="") {
 	}
 	else {
 		TradesGUI_Values.Is_Minimized := !TradesGUI_Values.Is_Minimized
-		if ( TradesGUI_Values.Is_Minimized ) {
-			tHeight := guiHeight
-			Loop { ; Create the illusion of an animation
-				if ( tHeight = guiHeightMin )
-					Break
-				tHeight := (guiHeightMin<tHeight)?(tHeight-30):(guiHeightMin)
-				tHeight := (tHeight-30<guiHeightMin)?(guiHeightMin):(tHeight)
-				Gui_Trades_Set_Height(tHeight)
-				sleep 1 ; Smoothen up the animation
-			}
-		}
-		else  {
-			tHeight := guiHeightMin
-			Loop {
-				if ( tHeight = guiHeight )
-					Break
-				tHeight := (guiHeight>tHeight)?(tHeight+30):(guiHeight)
-				tHeight := (tHeight+30>guiHeight)?(guiHeight):(tHeight)
-				Gui_Trades_Set_Height(tHeight)
-				sleep 1
-			}
-		}
+		SetTimer, Gui_Trades_Minimize_Animation, -10
 	}
 	sleep 10
 	DetectHiddenWindows, %detectHiddenWin%
+}
+
+Gui_Trades_Minimize_Animation() {
+	static
+	global TradesGUI_Values
+
+	guiHeight := TradesGUI_Values.Height_Full
+	guiHeightMin := TradesGUI_Values.Height_Minimized
+	animationStep := 36
+
+	doingAnimation := (!doingAnimation)?(true):(doingAnimation)
+
+	if (TradesGUI_Values.Is_Minimized) {
+		tHeight := (guiHeightMin<tHeight)?(tHeight-animationStep):(guiHeightMin)
+		tHeight := (tHeight-animationStep<guiHeightMin)?(guiHeightMin):(tHeight)
+
+		Gui_Trades_Set_Height(tHeight)
+		if (tHeight = guiHeightMin) {
+			SetTimer,% A_ThisFunc, Delete
+			doingAnimation := false
+		}
+	}
+	else {
+		tHeight := (guiHeight>tHeight)?(tHeight+animationStep):(guiHeight)
+		tHeight := (tHeight+animationStep>guiHeight)?(guiHeight):(tHeight)
+
+		Gui_Trades_Set_Height(tHeight)
+		if (tHeight = guiHeight) {
+			SetTimer,% A_ThisFunc, Delete
+			doingAnimation := false
+		}
+	}
+	if (doingAnimation)
+		SetTimer,% A_ThisFunc, -1
 }
 
 Gui_Trades_Skinned_Adjust_Tab_Range() {
@@ -1844,7 +1859,7 @@ Gui_Trades_Do_Action_Func(CtrlHwnd, GuiEvent, EventInfo) {
 	messages := Object()
 	tabInfos := Gui_Trades_Get_Trades_Infos(TradesGUI_Values.Active_Tab)
 	if (!tabInfos.Buyer && btnAction != "Close_Tab") {
-		Show_Tray_Notification(ProgramValues.Name, "No buyer found for tab """ TradesGUI_Values.Active_Tab """`nOperation cancelled. Please report this issue.")
+		Tray_Notifications_Show(ProgramValues.Name, "No buyer found for tab """ TradesGUI_Values.Active_Tab """`nOperation cancelled. Please report this issue.")
 		Return
 	}
 
@@ -1928,7 +1943,7 @@ Gui_Trades_Redraw(msg, params="") {
 
 	Gui_Trades_Save_Position()
 	if ( !params.noSplash )
-		SplashTextOn, 300, 25,% ProgramValues.Name,% "Re-drawing the interface..."
+		SplashTextOn, 300, 20,% ProgramValues.Name,% "Re-drawing the interface..."
 	allTrades := Gui_Trades_Manage_Trades("GET_ALL")
 	if ( params.preview ) {
 		if !(allTrades.Max_Index) {
@@ -1944,6 +1959,7 @@ Gui_Trades_Redraw(msg, params="") {
 			allTrades.Max_Index 	:= 1
 		}
 	}
+	Load_Skin_Assets()
 	Gui_Trades(msg)
 	Gui_Trades("UPDATE", allTrades)
 	SplashTextOff
@@ -2102,12 +2118,12 @@ Gui_Trades_Get_Trades_Infos(tabID){
 }
 
 Gui_Trades_Statistics(mode, tabInfos="") {
-	global ProgramValues
+	global ProgramValues, DebugValues
 
 	historyFile := ProgramValues.Trades_History_File
 
 	if (mode="ADD") {
-		if (ProgramValues.Debug || tabInfos.Buyer = "iSellStuff" )
+		if (DebugValues.settings.use_chat_logs || tabInfos.Buyer = "iSellStuff" )
 			Return
 
 		IniRead, index,% historyFile,% "GENERAL",% "Index"
@@ -2530,6 +2546,9 @@ Gui_Trades_Set_Position(xpos="UNSPECIFIED", ypos="UNSPECIFIED"){
 	if ( ProgramSettings.Trades_GUI_Mode != "Overlay" )
 		Return
 
+	if !TradesGUI_Values.Created
+		return
+
 	dpiFactor := ProgramSettings.Screen_DPI
 
 	if WinExist("ahk_id " TradesGUI_Values.Dock_Window) {
@@ -2542,11 +2561,11 @@ Gui_Trades_Set_Position(xpos="UNSPECIFIED", ypos="UNSPECIFIED"){
 			xpos := ( ( (A_ScreenWidth/dpiFactor) - TradesGUI_Values.Width ) * dpiFactor )
 		if ypos is not number
 			ypos := 0
-		Gui, Trades:Show, % "x" xpos " y" ypos " NoActivate"
+		Gui, Trades:Show,% "x" xpos " y" ypos " NoActivate"
 	}
 	else {
 		xpos := ( ( (A_ScreenWidth/dpiFactor) - TradesGUI_Values.Width ) * dpiFactor )
-		Gui, Trades:Show, % "x" xpos " y0" " NoActivate"
+		Gui, Trades:Show,% "x" xpos " y0" " NoActivate"
 	}
 	Logs_Append(A_ThisFunc, {X:xpos, Y:ypos})
 }
@@ -2712,7 +2731,7 @@ Gui_Settings() {
 		}
 		ctrlPos := "", ctrlVars := ""
 		Gui, Add, Progress,% "xp+70 yp w22 h22 Background000000 vFontsColorsPreview hwndFontsColorPreviewHandler Hidden"
-		Gui, Add, Text,% "xp-330 yp+25 vFontsColorsTip hwndFontsColorsTipsHandler",% "Description of the selected element will appear here."
+		Gui, Add, Text,% "xp-330 yp+25 R2 w400 vFontsColorsTip hwndFontsColorsTipsHandler",% "Description of the selected element will appear here."
 
 		Gui, Add, Link,% "x" guiXWorkArea + 80 . " y" guiYWorkArea+235,% "(<a href=""http://hslpicker.com/"">HSL Color Picker</a> - Get the 6 chars code starting with #) "
 
@@ -2937,7 +2956,31 @@ return
 		GuiControlGet, colorHex, Settings:,% ctrlHandlers[FontsColors]
 		GuiControl, Settings:+Background%colorHex%,% FontsColorPreviewHandler
 
-		ctrlHandlers := "", isVisible := "", colorHex := ""
+;		Show the tip corresponding
+		Tips := (FontsColors = "1")?("Colour for the window border.")
+			   :(FontsColors = "2")?("Font colour on buttons.")
+			   :(FontsColors = "3")?("Font colour for the currently hovered button.")
+			   :(FontsColors = "4")?("Font colour for the currently pressed button.")
+			   :(FontsColors = "5")?("Font colour for the title bar when you have active tabs.")
+			   :(FontsColors = "6")?("Font colour for the title bar when no tabs are open.")
+			   :(FontsColors = "7")?("Font colour for the Slot names.")
+			   :(FontsColors = "8")?("Font colour for the informations in the Slots.")
+			   :(FontsColors = "9")?("Font colour for the current active tab.")
+			   :(FontsColors = "10")?("Font colour on inactive tabs.")
+			   :(FontsColors = "11")?("Font colour for the currently hovered tab.")
+			   :(FontsColors = "12")?("Font colour for the currently pressed tab.")
+			   :(FontsColors = "13")?("Font colour for the current active tab.`nAnd for which the buyer has joined the area.")
+			   :(FontsColors = "14")?("Font colour on inactive tabs.`nAnd for which the buyer has joined the area.")
+			   :(FontsColors = "15")?("Font colour for the currently hovered tab.`nAnd for which the buyer has joined the area.")
+			   :(FontsColors = "16")?("Font colour for the currently pressed tab.`nAnd for which the buyer has joined the area.")
+			   :(FontsColors = "17")?("Font colour for the current active tab.`nAnd for which the buyer has sent you another whisper.")
+			   :(FontsColors = "18")?("Font colour on inactive tabs.`nAnd for which the buyer has sent you another whisper.")
+			   :(FontsColors = "19")?("Font colour for the currently hovered tab.`nAnd for which the buyer sent you another whisper.")
+			   :(FontsColors = "20")?("Font colour for the currently pressed tab.`nAnd for which the buyer sent you another whisper.")
+			   :("No description for this element has been found.")
+		GuiControl, Settings:,% FontsColorsTipsHandler,% Tips
+
+		ctrlHandlers := "", isVisible := "", colorHex := "", Tips := ""
 	Return
 
 	Gui_Settings_Cycle_Messages:
@@ -3063,7 +3106,7 @@ return
 
 			for id, key in keys {
 				IniRead, value,% skinSettingsFile,% sect,% key
-				if key is in %controlsUseChoose%
+				if key in %controlsUseChoose%
 					GuiControl, Settings:ChooseString,% handlers[id],% value
 				else
 					GuiControl, Settings:,% handlers[id],% value
@@ -4228,12 +4271,14 @@ Check_Update() {
 	static
 	global ProgramValues
 
-	IniRead, updateBeta,% ProgramValues.Ini_File,PROGRAM,Update_Beta, 0
-	IniRead, autoUpdate,% ProgramValues.Ini_File,PROGRAM,AutoUpdate, 0
-	IniRead, prevUpdateTime,% ProgramValues.Ini_File,PROGRAM,LastUpdate,% A_Now
+	IniRead, isUsingBeta,% ProgramValues.Ini_File,PROGRAM,Update_Beta, 0
+	IniRead, isAutoUpdateEnabled,% ProgramValues.Ini_File,PROGRAM,AutoUpdate, 0
+	IniRead, lastTimeUpdated,% ProgramValues.Ini_File,PROGRAM,LastUpdate,% A_Now
 
-	changeslogsLink := (updateBeta)?(ProgramValues.Changelogs_Link_Beta):(ProgramValues.Changelogs_Link)
-	versionLink := (updateBeta)?(ProgramValues.Version_Link_Beta):(ProgramValues.Version_Link)
+	changeslogsLink 		:= (isUsingBeta)?(ProgramValues.Changelogs_Link_Beta):(ProgramValues.Changelogs_Link)
+	versionLinkStable 		:= ProgramValues.Version_Link
+	versionLinkBeta 		:= ProgramValues.Version_Link_Beta
+	currentVersion 			:= ProgramValues.Version
 
 ;	Delete files remaining from updating
 	if FileExist(ProgramValues.Updater_File)
@@ -4258,9 +4303,9 @@ Check_Update() {
 		}
 	}
 	
-;	Version number file
+;	Version.txt on master branch
 	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
-	whr.Open("GET", versionLink, true)
+	whr.Open("GET", versionLinkStable, true)
 	whr.Send()
 	whr.WaitForResponse(10)
 	versionOnline := whr.ResponseText
@@ -4269,22 +4314,49 @@ Check_Update() {
 		StringReplace, versionOnline, versionOnline, `n,,1 ; remove the 2nd white line
 		versionOnline = %versionOnline% ; remove any whitespace
 	}
-	newVersion := (versionOnline)?(versionOnline):(ProgramValues.Version)
-	newVersion = %newVersion% ; Avoid a strange issue that would add 0's after decimal
 
-	ProgramValues.Version_Latest := newVersion
-	if ( newVersion != ProgramValues.Version ) {
-		ProgramValues.Update_Available := 1
-		if (autoUpdate=1) {
+;	Version.txt on dev branch
+	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+	whr.Open("GET", versionLinkBeta, true)
+	whr.Send()
+	whr.WaitForResponse(10)
+	versionOnlineBeta := whr.ResponseText
+	versionOnlineBeta = %versionOnlineBeta%
+	if ( versionOnlineBeta ) && !( RegExMatch(versionOnlineBeta, "Not(Found| Found)") ) { ; couldn't reach the file, cancel update
+		StringReplace, versionOnlineBeta, versionOnlineBeta, `n,,1 ; remove the 2nd white line
+		versionOnlineBeta = %versionOnlineBeta% ; remove any whitespace
+	}
+
+;	Set version IDs
+	latestStableVersion 	:= (versionOnline)?(versionOnline):("ERROR")
+	latestStableVersion = %latestStableVersion%
+
+	latestBetaVersion 		:= (versionOnlineBeta)?(versionOnlineBeta):("ERROR")
+	latestBetaVersion = %latestBetaVersion%
+
+	ProgramValues.Version_Latest 		:= latestStableVersion
+	ProgramValues.Version_Latest_Beta	:= latestBetaVersion
+
+	onlineVersionAvailable	 		:= (isUsingBeta)?(ProgramValues.Version_Latest_Beta):(ProgramValues.Version_Latest)
+	ProgramValues.Version_Online 	:= onlineVersionAvailable
+
+;	Set new version number and notify about update
+	isUpdateAvailable := (!isUsingBeta && latestStableVersion != "ERROR" && latestStableVersion != currentVersion)?(1)
+						:(isUsingBeta && latestBetaVersion != "ERROR" && latestBetaVersion != currentVersion)?(1)
+						:(0)
+	ProgramValues.Update_Available := isUpdateAvailable
+
+	if ( isUpdateAvailable ) {
+		if (isAutoUpdateEnabled = 1) {
 			timeDif := A_Now
-			EnvSub, timeDif, %prevUpdateTime%, Seconds
-			if (timeDif > 61 || !timeDif) { ; !timeDif means prevUpdateTime was not in YYYYMMDDHH24MISS format 
-				Show_Tray_Notification(newVersion " is available!", "Auto-updating is enabled. Downloading the updater...")
+			EnvSub, timeDif,% lastTimeUpdated, Seconds
+			if (timeDif > 61 || !timeDif) { ; !timeDif means var was not in YYYYMMDDHH24MISS format 
+				Tray_Notifications_Show(onlineVersionAvailable " is available!", "Auto-updating is enabled. Downloading the updater...")
 				Download_Updater()
 			}
 		}
 		else {
-			Show_Tray_Notification(newVersion " is available!", "Left click on this notification to run the automatic download.`nRight click to dismiss it.", {Is_Update:1, Fade_Timer:10000})
+			Tray_Notifications_Show(onlineVersionAvailable " is available!", "Left click on this notification to run the automatic download.`nRight click to dismiss it.", {Is_Update:1, Fade_Timer:10000})
 		}
 	}
 	SetTimer, Check_Update, -1800000
@@ -4302,31 +4374,37 @@ Gui_About(params="") {
 
 	iniFilePath := ProgramValues.Ini_File, programName := ProgramValues.Name
 	verCurrent := ProgramValues.Version, verLatest := ProgramValues.Version_Latest
+	isUpdateAvailable := ProgramValues.Update_Available, onlineVersionAvailable := ProgramValues.Version_Online
 
-	isUpdateAvailable := (verLatest && verCurrent != verLatest)?(1):(0)
-
-	IniRead, updateBeta,% iniFilePath,PROGRAM,Update_Beta
-	IniRead, autoUpdate,% iniFilePath,PROGRAM,AutoUpdate
+	IniRead, isUsingBeta,% iniFilePath,PROGRAM,Update_Beta
+	IniRead, isAutoUpdateEnabled,% iniFilePath,PROGRAM,AutoUpdate
 
 	Gui, About:Destroy
 	Gui, About:New, +HwndaboutGuiHandler +AlwaysOnTop +SysMenu -MinimizeBox -MaximizeBox +OwnDialogs +LabelGui_About_,% programName " by lemasato v" verCurrent
 	Gui, About:Default
 	Gui, Font, ,Consolas
 
-	groupText := (isUpdateAvailable)?("Update v" verLatest " available."):("No update available.")
-	Gui, Add, GroupBox, w500 h80 xm Section c000000 hwndUpdateAvailableTextHandler,% groupText
-	Gui, Add, Text, xs+20 ys+20,% "Current version: " A_Tab verCurrent
-	Gui, Add, Text, xs+20 ys+35 hwndLastestVersionTextHandler,% "Latest version: " A_Tab verLatest
+	groupText := (isUpdateAvailable)?("Update v" onlineVersionAvailable " available."):("No update available.")
+	Gui, Add, GroupBox, w500 h100 xm Section c000000 hwndUpdateAvailableTextHandler,% groupText
+	Gui, Add, Text, xs+20 ys+20,% "Current version: " A_Tab A_Tab verCurrent
+	if (isUpdateAvailable)
+		Gui, Add, Button,x+25 yp-5 w80 h20 gGui_About_Update,Update
+	Gui, Add, Text, xs+20 ys+40 hwndLastestVersionTextHandler,% "Latest Version (Stable): " A_Tab ProgramValues.Version_Latest
+	Gui, Add, Text, xs+20 ys+55 hwndLastestVersionBetaTextHandler,% "Latest Version (Beta): " A_Tab A_Tab ProgramValues.Version_Latest_Beta
 	if ( isUpdateAvailable ) {
 		GuiControl, About:+cGreen +Redraw,% UpdateAvailableTextHandler
-		GuiControl, About:+cGreen +Redraw,% LastestVersionTextHandler
-		Gui, Add, Button,x+25 yp-5 w80 h20 gGui_About_Update,Update
+		if (isUsingBeta) {
+			GuiControl, About:+cBlue +Redraw,% LastestVersionBetaTextHandler
+		}
+		else {
+			GuiControl, About:+cGreen +Redraw,% LastestVersionTextHandler
+		}
 	}
-	Gui, Add, CheckBox,xs+20 ys+55 vUpdateAutomatically,Enable automatic updates
+	Gui, Add, CheckBox,xs+20 ys+75 vUpdateAutomatically,Enable automatic updates
 	Gui, Add, CheckBox,xp+200 yp vUpdateBeta,Enable BETA (Requires reloading)
-	if ( autoUpdate = 1 )
+	if ( isAutoUpdateEnabled = 1 )
 		GuiControl, About:,UpdateAutomatically,1
-	if ( updateBeta = 1 )
+	if ( isUsingBeta = 1 )
 		GuiControl, About:,UpdateBeta,1
 
 	FileRead, changelogText,% ProgramValues.Changelogs_File
@@ -4575,6 +4653,14 @@ Update_Local_Settings() {
 		IniDelete,% iniFile, HOTKEYS, HK%A_Index%_CTRL
 		IniDelete,% iniFile, HOTKEYS, HK%A_Index%_ALT
 		IniDelete,% iniFile, HOTKEYS, HK%A_Index%_SHIFT
+	}
+
+/*	Opening changelogs, after updating
+*/
+	IniRead, openChangelogs,% iniFilePath,PROGRAM,Show_Changelogs, 0
+	if ( openChangelogs = 1 ) {
+		Gui_About()
+		IniWrite, 0,% iniFilePath,PROGRAM,Show_Changelogs
 	}
 }
 
@@ -5206,7 +5292,7 @@ WM_LBUTTONDBLCLK(wParam, lParam, msg, hwnd) {
 
 WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 	static
-	global TradesGUI_Values, ProgramValues, TradesGUI_Controls, ProgramSettings
+	global TradesGUI_Values, ProgramValues, TradesGUI_Controls, ProgramSettings, DebugValues
 
 	programSkinFolderPath := ProgramValues.Skins_Folder
 
@@ -5288,7 +5374,7 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd) {
 	}
 
 	else if ( A_GUI = "Settings" ) {
-		timer := (ProgramValues.Debug)?(-100):(-1000)
+		timer := (DebugValues.settings.open_settings)?(-100):(-1000)
 		curControl := A_GuiControl
 		If ( curControl <> prevControl ) {
 			controlTip := Get_Control_ToolTip(curControl)
@@ -5418,10 +5504,12 @@ ShellMessage(wParam,lParam) {
 			Return ; returning prevents from triggering Gui_Trades_Set_Position while the GUI is active
 		}
 
+		if (!TradesGUI_Values.Created)
+			Return
+
 		WinGet, winEXE, ProcessName, ahk_id %lParam%
 		WinGet, winID, ID, ahk_id %lParam%
 		if ( ProgramSettings.Show_Mode = "InGame" ) {
-
 			if ( TradesGUI_Values.Width ) { ; TradesGUI exists
 				if POEGameList not contains %winEXE%
 				{
@@ -5436,7 +5524,7 @@ ShellMessage(wParam,lParam) {
 			Gui, Trades:Show, NoActivate ; Always Shwo
 
 		if ( ProgramSettings.Trades_GUI_Mode = "Overlay")
-			Gui_Trades_Set_Position() ; Re-position the GUI
+			try Gui_Trades_Set_Position() ; Re-position the GUI
 
 		Gui, Trades:+LastFound
 		WinSet, AlwaysOnTop, On
@@ -5533,6 +5621,7 @@ IsBetween(value, first, last) {
 
 Load_Skin_Assets() {
 	global ProgramValues, ProgramSettings, SkinAssets
+
 	SkinAssets 			:= {}
 	skinFolder 			:= ProgramValues.Skins_Folder "\" ProgramSettings.Active_Skin
 	assetsFile 		 	:= skinFolder "\Assets.ini"
@@ -5568,9 +5657,11 @@ Get_Active_Trading_Leagues() {
 		Parse them, to keep only non-solo or non-ssf leagues
 		Return the resulting list
 */
-	apiLink := "http://api.pathofexile.com/leagues?type=main&compact=1"
-	excludedWords := "SSF,Solo"
-	activeLeagues := "Beta Standard|Beta Hardcore"
+	global ProgramValues, Trading_Leagues
+
+	apiLink 			:= "http://api.pathofexile.com/leagues?type=main&compact=1"
+	excludedWords 		:= "SSF,Solo"
+	activeLeagues 		:= "Standard,Hardcore,Beta Standard,Beta Hardcore,Harbinger,Hardcore Harbinger" ; In case API is down or does not show them
 
 ;	Retrieve from online API
 	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
@@ -5578,17 +5669,26 @@ Get_Active_Trading_Leagues() {
 	whr.Send()
 	whr.WaitForResponse(10) ; 10 seconds
 	leaguesJSON := whr.ResponseText
+	if !(leaguesJSON) {
+		Tray_Notifications_Show(ProgramValues.Name, "Failed to reach Leagues API.`nRetrying in 30s...")
+		SetTimer,% A_ThisFunc, -30000
+		Return
+	}
 
 ;	Parse the leagues (JSON)
 	parsedLeagues := JSON.Load(leaguesJSON)
 	Loop % parsedLeagues.MaxIndex() {
-		arrID := parsedLeagues[A_Index]
-		activeLeagues .= "|" arrID.ID
+		arrID 		:= parsedLeagues[A_Index]
+		leagueName 	:= arrID.ID
+		if leagueName not in %activeLeagues%
+		{
+ 			activeLeagues .= "," leagueName
+		}
 	}
 
 ;	Remove SSF & Solo leagues
 	tradingLeagues := []
-	Loop, Parse, activeLeagues,% "D|" 
+	Loop, Parse, activeLeagues,% "D," 
 	{
 		if A_LoopField not contains %excludedWords%
 		{
@@ -5596,7 +5696,7 @@ Get_Active_Trading_Leagues() {
 		}
 	}
 
-	return tradingLeagues
+	Trading_Leagues := tradingLeagues
 }
 
 
@@ -5685,22 +5785,6 @@ Get_All_Games_Instances() {
 	return r
 }
 
-Do_Once() {
-/*			
- *			Things that only need to be done ONCE
-*/
-	global ProgramValues
-
-	iniFilePath := ProgramValues.Ini_File
-
-;	Open the changelog menu
-	IniRead, state,% iniFilePath,PROGRAM,Show_Changelogs
-	if ( state = 1 ) {
-		Gui_About()
-		IniWrite, 0,% iniFilePath,PROGRAM,Show_Changelogs
-	}
-}
-
 Get_DPI_Factor() {
 ;			Credits to ANT-ilic
 ;			autohotkey.com/board/topic/6893-guis-displaying-differently-on-other-machines/?p=77893
@@ -5723,47 +5807,52 @@ Logs_Append(funcName, params) {
 	if ( funcName = "DUMP" ) {
 		dpiFactor := ProgramSettings.Screen_DPI
 
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% ">>> OS SECTION `n",% logsFile
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile	
 		OSbits := (A_Is64bitOS)?("64bits"):("32bits")
-		FileAppend,% "Type: " A_OSType "`n",% logsFile
-		FileAppend,% "Version: " A_OSVersion "(" OSbits ")`n",% logsFile
-		FileAppend,% "DPI: " dpiFactor "`n",% logsFile
-		FileAppend,% "`n",% logsFile
+		IniRead, programSectionContent,% iniFilePath,PROGRAM
 
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% ">>> TOOL SECTION `n",% logsFile
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% "Version: " ProgramValues.Version "`n",% logsFile
-		FileAppend,% "Local_Folder: " ProgramValues.Local_Folder "`n",% logsFile
-		FileAppend,% "Game_Folder: " ProgramValues.Game_Folder "`n",% logsFile
-		FileAppend,% "`n",% logsFile
-
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% ">>> PROGRAM SECTION `n",% logsFile
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		IniRead, content,% iniFilePath,PROGRAM
-		FileAppend,% content "`n",% logsFile
-		FileAppend,% "`n",% logsFile
-
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% ">>> GAME SETTINGS `n",% logsFile
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
+		gameSettingsContent := ""
 		for key, element in GameSettings {
-			FileAppend,% key ": """ element """`n",% logsFile
+			gameSettingsContent .= key ": """ element """`n"
 		}
-		FileAppend,% "`n",% logsFile
 
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
-		FileAppend,% ">>> LOCAL SETTINGS `n",% logsFile
-		FileAppend,% ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n",% logsFile
+		paramsKeysContent := ""
 		for key, element in params.KEYS {
-			FileAppend,% params.KEYS[A_Index] ": """ params.VALUES[A_Index] """`n",% logsFile
+			paramsKeysContent .= params.KEYS[A_Index] ": """ params.VALUES[A_Index] """`n"
 		}
-		FileAppend,% "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`n",% logsFile
-		FileAppend,% "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`n",% logsFile
-		FileAppend,% "`n",% logsFile
+
+		appendToFile := ""
+		appendToFile := ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>> OS SECTION `n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. "Type: " A_OSType "`n"
+						. "Version: " A_OSVersion "(" OSbits ")`n"
+						. "DPI: " dpiFactor "`n"
+						. "`n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>> TOOL SECTION `n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. "Version: " ProgramValues.Version "`n"
+						. "Local_Folder: " ProgramValues.Local_Folder "`n"
+						. "Game_Folder: " ProgramValues.Game_Folder "`n"
+						. "`n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>> PROGRAM SECTION `n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. programSectionContent "`n"
+						. "`n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>> GAME SETTINGS `n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. gameSettingsContent 
+						. "`n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. ">>> LOCAL SETTINGS `n"
+						. ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`n"
+						. paramsKeysContent
+						. "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`n"
+						. "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`n"
+		FileAppend,% appendToFile,% logsFile
 	}
 
 	else {
@@ -5893,7 +5982,7 @@ Send_InGame_Message(allMessages, tabInfos="", specialEvent="") {
 			PIDArray := Get_Matching_Windows_Infos("PID")
 			handlersArray := Get_Matching_Windows_Infos("ID")
 			if ( handlersArray.MaxIndex() = "" ) {
-				Show_Tray_Notification(programName, "The PID assigned to the tab does not belong to a POE instance, and no POE instance was found!`n`nPlease click the button again after restarting the game.")
+				Tray_Notifications_Show(programName, "The PID assigned to the tab does not belong to a POE instance, and no POE instance was found!`n`nPlease click the button again after restarting the game.")
 				Return 1
 			}
 			else {
@@ -6028,12 +6117,11 @@ Install_Font_Files() {
 	try Run,% fontsFolder "/FontReg.exe /Copy",% fontsFolder
 }
 
-Extract_Font_Files() {
-/*			Include the Resources into the compiled executable
- *			Extract the Resources into their specified folder
-*/
+Extract_Assets() {
 	global ProgramValues
+	static 0 ; Bypass warning "local same as global" for var 0
 
+<<<<<<< HEAD
 	fontsFolder := ProgramValues.Fonts_Folder
 
 	if FileExist(fontsFolder "\TC-Symbols.*")
@@ -6081,37 +6169,142 @@ Extract_Skin_Files() {
 	; Include file install script if it is available. Make sure fileinstall script has been created when compiling or it wont run.
 	#Include *i File_Install.ahk
 }
+=======
+	if (A_IsCompiled) {
+		#Include, *i File_Install.ahk
+		Return
+	}
 
-Extract_Sound_Files() {
-/*			Include the SFX into the compiled executable
- *			Extracts the included SFX into the SFX Folder
-*/
-	global ProgramValues
-	sfxFolder := ProgramValues.SFX_Folder
+;	File location
+	installFile := % A_ScriptDir "\File_Install.ahk"
+	FileDelete,% installFile
 
-	FileInstall, Resources\SFX\MM_Tatl_Gleam.wav,% sfxFolder "\MM_Tatl_Gleam.wav", 0
-	FileInstall, Resources\SFX\MM_Tatl_Hey.wav,% sfxFolder "\MM_Tatl_Hey.wav", 0
-	FileInstall, Resources\SFX\WW_MainMenu_CopyErase_Start.wav,% sfxFolder "\WW_MainMenu_CopyErase_Start.wav", 0
-	FileInstall, Resources\SFX\WW_MainMenu_Letter.wav,% sfxFolder "\WW_MainMenu_Letter.wav", 0
-}
+;	Pass ProgramValues to file
+	appendToFile .= "tempParams := {}`n"
+				 .	"Loop, %0% {`n"
+				 .	"	param := `%A_Index`%`n"
+				 . 	"	if RegExMatch(param, ""/Fonts_Folder=(.*)"", found) {`n"
+				 . 	"		tempParams.Fonts_Folder := found1`n"
+				 . 	"	}`n"
+				 . 	"	if RegExMatch(param, ""/SFX_Folder=(.*)"", found) {`n"
+				 . 	"		tempParams.SFX_Folder := found1`n"
+				 . 	"	}`n"
+				 . 	"	if RegExMatch(param, ""/Others_Folder=(.*)"", found) {`n"
+				 . 	"		tempParams.Others_Folder := found1`n"
+				 . 	"	}`n"
+				 . 	"	if RegExMatch(param, ""/Data_Folder=(.*)"", found) {`n"
+				 . 	"		tempParams.Data_Folder := found1`n"
+				 . 	"	}`n"
+				 . 	"	if RegExMatch(param, ""/Skins_Folder=(.*)"", found) {`n"
+				 . 	"		tempParams.Skins_Folder := found1`n"
+				 . 	"	}`n"
+				 .	"	ProgramValues := tempParams`n"
+				 . 	"}`n"
 
-Extract_Data_Files() {
-	global ProgramValues
-	dataFolder := ProgramValues.Data_Folder
+;	FONTS
+	resFolder := A_ScriptDir "\Resources\Fonts"
+	allowedExt := "ttf,ini"
+	allowedFiles := "FontReg.exe"
+	appendToFile .= "`n; FONT`n"
 
-	FileInstall, Resources\Data\Currency_All.txt,% dataFolder "\Currency_All.txt", 1
-	FileInstall, Resources\Data\currencyTradeNames.json,% dataFolder "\currencyTradeNames.json", 1
-}
+	appendToFile .= "if !( InStr(FileExist(ProgramValues.Fonts_Folder), ""D"") )`n"
+				  . "	FileCreateDir,`% ProgramValues.Fonts_Folder `n"
+	Loop, Files,% resFolder "\*"
+	{
+		RegExMatch(A_LoopFileFullPath, "\\Resources\\(.*)", path)
+		filePath := "Resources\" path1
+		
+		if A_LoopFileName in %allowedFiles%
+			appendToFile .= "FileInstall, " filePath ",`% ProgramValues.Fonts_Folder """ "\" A_LoopFileName """" ", 1`n"
+		else if A_LoopFileExt in %allowedExt%			
+			appendToFile .= "FileInstall, " filePath ",`% ProgramValues.Fonts_Folder """ "\" A_LoopFileName """" ", 1`n"
+	}
 
-Extract_Others_Files() {
-/*			Include any other file that does not belong to the others
-			Extracts the included files into the specified folder
-*/
-	global ProgramValues
-	othersFolder := ProgramValues.Others_Folder
+;	SFX
+	resFolder := A_ScriptDir "\Resources\SFX"
+	allowedExt := "wav,mp3"
+	appendToFile .= "`n; SFX`n"
 
-	FileInstall, Resources\Others\DonatePaypal.png,% othersFolder "\DonatePaypal.png", 1
-	FileInstall, Resources\Others\icon.png,% othersFolder "\icon.png", 1
+	appendToFile .= "if !( InStr(FileExist(ProgramValues.SFX_Folder), ""D"") )`n"
+				  . "	FileCreateDir,`% ProgramValues.SFX_Folder `n"
+	Loop, Files,% resFolder "\*"
+	{
+		RegExMatch(A_LoopFileFullPath, "\\Resources\\(.*)", path)
+		filePath := "Resources\" path1
+
+		if A_LoopFileExt in %allowedExt%
+			appendToFile .= "FileInstall, " filePath ",`% ProgramValues.SFX_Folder """ "\" A_LoopFileName """" ", 1`n"
+	}
+
+;	DATA
+	resFolder := A_ScriptDir "\Resources\Data"
+	appendToFile .= "`n; DATA`n"
+
+	appendToFile .= "if !( InStr(FileExist(ProgramValues.Data_Folder), ""D"") )`n"
+				  . "	FileCreateDir,`% ProgramValues.Data_Folder `n"
+	Loop, Files,% resFolder "\*"
+	{
+		RegExMatch(A_LoopFileFullPath, "\\Resources\\(.*)", path)
+		filePath := "Resources\" path1
+
+		appendToFile .= "FileInstall, " filePath ",`% ProgramValues.Data_Folder """ "\" A_LoopFileName """" ", 1`n"
+	} 
+
+;	OTHERS
+	resFolder := A_ScriptDir "\Resources\Others"
+	allowedFiles := "DonatePaypal.png,Icon.png"
+	appendToFile .= "`n; OTHERS`n"
+>>>>>>> refs/remotes/lemasato/dev
+
+	appendToFile .= "if !( InStr(FileExist(ProgramValues.Others_Folder), ""D"") )`n"
+				  . "	FileCreateDir,`% ProgramValues.Others_Folder `n"
+	Loop, Files,% resFolder "\*"
+	{
+		RegExMatch(A_LoopFileFullPath, "\\Resources\\(.*)", path)
+		filePath := "Resources\" path1
+
+		if A_LoopFileName in %allowedFiles%
+			appendToFile .= "FileInstall, " filePath ",`% ProgramValues.Others_Folder """ "\" A_LoopFileName """" ", 1`n"
+	} 
+
+;	SKINS
+	skinNames := []
+	resFolder := A_ScriptDir "\Resources\Skins"
+	appendToFile .= "`n; SKINS`n"
+	allowedExt := "png,ico,ini"
+	excludedFolders := "_Old"
+
+	appendToFile .= "if !( InStr(FileExist(ProgramValues.Skins_Folder), ""D"") )`n"
+				  . "	FileCreateDir,`% ProgramValues.Skins_Folder `n"
+	Loop, Files,% resFolder "\*", D
+	{
+		if A_LoopFileName not in %excludedFolders%
+		skinNames.Push(A_LoopFileName)
+	}
+	for id, skinName in skinNames {
+		appendToFile .= "`n" A_Tab "; " skinName "`n"
+
+		appendToFile .= "if !( InStr(FileExist(ProgramValues.Skins_Folder ""\" skinName """), ""D"") )`n"
+					  . "	FileCreateDir,`% ProgramValues.Skins_Folder ""\" skinName """`n"
+		Loop, Files,% resFolder "\" skinName "\*"
+		{
+			RegExMatch(A_LoopFileFullPath, "\\Resources\\(.*)", path)
+			filePath := "Resources\" path1
+
+			if A_LoopFileExt in %allowedExt%
+				appendToFile .= "FileInstall, " filePath ",`% ProgramValues.Skins_Folder ""\" skinName "\" A_LoopFileName """" ", 1`n"
+		}
+	}
+
+;	ADD TO FILE
+	FileAppend,% appendToFile "`n",% installFile
+	Sleep 10
+	RunWait,% installFile
+		   . " /Fonts_Folder=" 	"""" ProgramValues.Fonts_Folder """"
+		   . " /SFX_Folder=" 	"""" ProgramValues.SFX_Folder """"
+		   . " /Data_Folder=" 	"""" ProgramValues.Data_Folder """"
+		   . " /Others_Folder=" """" ProgramValues.Others_Folder """"
+		   . " /Skins_Folder=" 	"""" ProgramValues.Skins_Folder """"
 }
 
 Close_Previous_Program_Instance() {
@@ -6186,7 +6379,7 @@ Gui_Trades_Cycle_Func() {
 		Return
 
 	if !Trades_GUI_Exists() {
-		Show_Tray_Notification(programName, "Couldn't find the Trades GUI!`nOperation Canceled.")
+		Tray_Notifications_Show(programName, "Couldn't find the Trades GUI!`nOperation Canceled.")
 		Return
 	}
 	matchHandlers := Get_Matching_Windows_Infos("ID")
@@ -6195,7 +6388,7 @@ Gui_Trades_Cycle_Func() {
 		TradesGUI_Values.Dock_Window_Num := 0
 	}
 	TradesGUI_Values.Insert("Dock_Window", matchHandlers[TradesGUI_Values["Dock_Window_Num"]])
-	Gui_Trades_Set_Position()
+	try Gui_Trades_Set_Position()
 	Logs_Append(A_ThisFunc, {Dock_Window:TradesGUI_Values.Dock_Window, Total_Matchs:matchHandlers.MaxIndex() + 1})
 }
 
@@ -6246,18 +6439,21 @@ Create_Tray_Menu() {
 /*
  *			Creates the Tray Menu
 */
-	global ProgramValues, ProgramSettings
+	global ProgramValues, ProgramSettings, DebugValues
 
 	programName := ProgramValues.Name, programVersion := ProgramValues.Version
 
 	Menu, Tray, NoStandard
 	Menu, Tray, DeleteAll
 	Menu, Tray, Tip,% programName " v" programVersion
-	if ( ProgramValues.Debug ) {
-		Menu, Debug, Add,Open game folder,Open_Game_Folder
-		Menu, Debug, Add,Open local folder,Open_Local_Folder
-		Menu, Debug, Add,Delete Preferences file,Delete_Preferences
-		Menu, Debug, Add,Delete entire local folder,Delete_Local_Folder
+	if ( DebugValues.settings.show_tray_menu ) {
+		Menu, Debug, Add,Reload debug JSON, Load_Debug_JSON
+		Menu, Debug, Add,
+		Menu, Debug, Add,Open game folder, Tray_Open_Game_Folder
+		Menu, Debug, Add,Open local folder, Tray_Open_Local_Folder
+		Menu, Debug, Add,
+		Menu, Debug, Add,Delete Preferences file, Tray_Delete_Preferences
+		Menu, Debug, Add,Delete entire local folder, Tray_Delete_Local_Folder
 		Menu, Tray, Add, Debug,:Debug
 	}
 	Menu, Tray, Add,Settings, Gui_Settings
@@ -6276,11 +6472,11 @@ Create_Tray_Menu() {
 	Menu, Tray, Icon
 	Return
 
-	Delete_Preferences:
+	Tray_Delete_Preferences:
 		FileDelete,% ProgramValues.Ini_File
 	Return
 
-	Delete_Local_Folder:
+	Tray_Delete_Local_Folder:
 		MsgBox, 4100, ,% "THIS WILL DELETE THE ENTIRE FOLDER`NMAKE SURE TO BACKUP YOUR FILES BEFORE CONTINUING.`N`NARE YOU SURE?"
 		IfMsgBox, Yes
 		{
@@ -6289,14 +6485,14 @@ Create_Tray_Menu() {
 		}
 	Return
 
-	Open_Game_Folder:
+	Tray_Open_Game_Folder:
 		Run,% ProgramValues.Game_Folder,,UseErrorLevel
 		if (A_LastError) {
 			ErrorMsg := Get_System_Error_Codes(A_LastError)
 		}
 	Return
 
-	Open_Local_Folder:
+	Tray_Open_Local_Folder:
 		Run,% ProgramValues.Local_Folder,,UseErrorLevel
 		if (A_LastError) {
 			ErrorMsg := Get_System_Error_Codes(A_LastError)
@@ -6319,7 +6515,7 @@ Get_System_Error_Codes(Err) {
 Run_As_Admin() {
 /*			If not running with as admin, reload with admin rights. 
 */
-	global ProgramValues, ProgramSettings, RunParameters
+	global ProgramValues, ProgramSettings, RunParameters, DebugValues
 
 	programName := ProgramValues.Name
 
@@ -6339,7 +6535,7 @@ Run_As_Admin() {
 		Gui_AdminWarn()
 		ExitApp
 	}
-	if (!ProgramValues.Debug && !ProgramValues.NoSplash) {
+	if !(DebugValues.settings.no_admin_splash) { ; only show if disabled
 		funcParams := {  Background_Color:"Green"
 						,Border_Color:"White"
 						,Title_Color:"White"
@@ -6763,14 +6959,12 @@ Get_Text_Control_Size(txt, fontName, fontSize, maxWidth="") {
 */
 }
 
-Show_Tray_Notification(title, msg, params="") {
+Tray_Notifications_Show(title, msg, params="") {
 /*		Show a notification.
  *		Look based on w10 traytip.
 */
 	static
-	global SkinAssets, ProgramSettings
-
-	local defaultGUI := A_DefaultGUI
+	global SkinAssets, ProgramSettings, TrayNotifications_Values
 
 	Is_Update := params.Is_Update
 
@@ -6782,48 +6976,41 @@ Show_Tray_Notification(title, msg, params="") {
 	guiHeight := (textSize.H > guiHeightMax)?(guiHeightMax):(textSize.H)
 
 	; Fixing DPI size
-	guiWidth := guiWidth * ProgramSettings.Screen_DPI
 	guiHeight := guiHeight * ProgramSettings.Screen_DPI
 
 	guiHeight += 50, guiWidth += 20 ; Fitting size
 	borderSize := 1
 	fadeTimer := (params.Fade_Timer)?(params.Fade_Timer):(5000)
 
-	showX := A_ScreenWidth, showY := A_ScreenHeight-guiHeight-60
-	showW := 0, showH := guiHeight
+	showX := A_ScreenWidth-guiWidth-15, showY := A_ScreenHeight-guiHeight-60
+	showW := guiWidth, showH := guiHeight
 
 	Gui, TrayNotification:Destroy
 	Gui, TrayNotification:New, +ToolWindow +AlwaysOnTop -Border +LastFound -SysMenu -Caption +LabelGui_TrayNotification_
 	Gui, TrayNotification:Default
-	Gui, Margin, 0, 0
-	Gui, Color, 1f1f1f
+	Gui, TrayNotification:Margin, 0, 0
+	Gui, TrayNotification:Color, 1f1f1f
 
-	Gui, Add, Progress, x0 y0 w%guiWidth% h%borderSize% Background484848 ; Top
-	Gui, Add, Progress, x0 y0 w%borderSize% h%guiHeight% Background484848 ; Left
-	; Gui, Add, Progress,% "x" guiWidth-borderSize " y0" " w" borderSize " h" guiHeight " Background484848" ; Right
-	Gui, Add, Progress,% "x" 0 " y" guiHeight-borderSize " w" guiWidth " h" borderSize " Background484848" ; Bottom
-	Gui, Add, Text,% "x0 y0 w" guiWidth " h" guiHeight " BackgroundTrans gGui_TrayNotification_OnLeftClick",% ""
+	Gui, TrayNotification:Add, Progress, x0 y0 w%guiWidth% h%borderSize% Background484848 ; Top
+	Gui, TrayNotification:Add, Progress, x0 y0 w%borderSize% h%guiHeight% Background484848 ; Left
+	Gui, TrayNotification:Add, Progress,% "x" guiWidth-borderSize " y0" " w" borderSize " h" guiHeight " Background484848" ; Right
+	Gui, TrayNotification:Add, Progress,% "x" 0 " y" guiHeight-borderSize " w" guiWidth " h" borderSize " Background484848" ; Bottom
+	Gui, TrayNotification:Add, Text,% "x0 y0 w" guiWidth " h" guiHeight " BackgroundTrans gGui_TrayNotification_OnLeftClick",% ""
 
-	Gui, Add, Picture, x5 y5 w24 h24 hwndhIcon,% SkinAssets.Misc_Icon
-	Gui, Font, S%guiTitleFontSize% Bold,% guiFontName
-	Gui, Add, Text,% "xp+35" " yp+5" " w" guiWidth-20 " BackgroundTrans cFFFFFF gGui_TrayNotification_OnLeftClick",% title
-	Gui, Font, S%guiFontSize% Norm,% guiFontName
-	Gui, Add, Text,% "xp" " yp+25" " w" guiWidth-40 " BackgroundTrans ca5a5a5 gGui_TrayNotification_OnLeftClick",% msg
+	Gui, TrayNotification:Add, Picture, x5 y5 w24 h24 hwndhIcon,% SkinAssets.Misc_Icon
+	Gui, TrayNotification:Font, S%guiTitleFontSize% Bold,% guiFontName
+	Gui, TrayNotification:Add, Text,% "xp+35" " yp+5" " w" guiWidth-20 " BackgroundTrans cFFFFFF gGui_TrayNotification_OnLeftClick",% title
+	Gui, TrayNotification:Font, S%guiFontSize% Norm,% guiFontName
+	Gui, TrayNotification:Add, Text,% "xp" " yp+25" " w" guiWidth-40 " BackgroundTrans ca5a5a5 gGui_TrayNotification_OnLeftClick",% msg
 	GuiControl, TrayNotification:Move,% hIcon,% "y" (guiHeight/2) - (24/2)
-	Gui, Show,% "x" showX " y" showY " w" showW " h" showH " NoActivate"
-	Loop {
-		showW += 25
-		showW := (showW > guiWidth)?(guiWidth):(showW)
-		showX := A_ScreenWidth-showW
-		Gui, Show,% "x" showX " w" showW " NoActivate"
-		Sleep 1
-		if (showW = guiWidth)
-			Break
-	}
 
-	SetTimer, Fade_Tray_Notification, Delete ; Remove previous timer, if existing
-	SetTimer, Fade_Tray_Notification, -%fadeTimer%
-	Gui, %defaultGUI%:Default
+	Gui, TrayNotification:+LastFound
+	WinSet, Transparent, 255
+	Gui, TrayNotification:Show,% "x" showX " y" showY " w" showW " h" showH " NoActivate"
+
+	TrayNotifications_Values := {"New":1} ; New notification, reset transparency from fade
+
+	SetTimer, Tray_Notifications_Fade, -%fadeTimer%
 	Return
 
 	Gui_TrayNotification_ContextMenu: ; Launched whenever the user right-clicks anywhere in the window except the title bar and menu bar.
@@ -6838,42 +7025,52 @@ Show_Tray_Notification(title, msg, params="") {
 	Return
 }
 
+Tray_Notifications_Fade() {
+	global TrayNotifications_Values
+	static transparency
+
+	if (TrayNotifications_Values.New) { ; Reset transparency to 255, in case old notification did not full fade yet
+		TrayNotifications_Values.New := false
+		transparency := 255
+	}
+	transparency := (!transparency)?(255):(transparency)
+
+	transparency := (0 > transparency)?(0):(transparency-10)
+	Gui, TrayNotification:+LastFound
+	WinSet, Transparent,% transparency
+	if (!transparency) {
+		Gui, TrayNotification:Destroy
+		SetTimer,% A_ThisFunc, Delete
+	}
+	else
+		SetTimer,% A_ThisFunc, -50
+}
+
 Download_Updater() {
 	global ProgramValues
 
 	Gui_Trades_Save_Pending_Backup()
 
-	IniRead,updateBeta,% ProgramValues.Ini_File,PROGRAM,Update_Beta
+	IniRead, isUsingBeta,% ProgramValues.Ini_File,PROGRAM,Update_Beta, 0
 
-	updaterLink := (updateBeta)?(ProgramValues.Updater_Link_Beta):(ProgramValues.Updater_Link)
-	newVersionLink := (updateBeta)?(ProgramValues.NewVersion_Link_Beta):(ProgramValues.NewVersion_Link)
-	fileName := (updateBeta)?(ProgramValues.Name " (Beta).exe"):(ProgramValues.Name ".exe")
+	updaterLink 		:= (isUsingBeta)?(ProgramValues.Updater_Link_Beta):(ProgramValues.Updater_Link)
+	newVersionLink 		:= (isUsingBeta)?(ProgramValues.NewVersion_Link_Beta):(ProgramValues.NewVersion_Link)
 
 	IniWrite,% A_Now,% ProgramValues.Ini_File,PROGRAM,LastUpdate
 	UrlDownloadToFile,% updaterLink,% ProgramValues.Updater_File
 	Sleep 10
-	Run,% ProgramValues.Updater_File 
-	. " /Name=""" ProgramValues.Name  """"
-	. " /File_Name=""" fileName """"
-	. " /Local_Folder=""" ProgramValues.Local_Folder """"
-	. " /Ini_File=""" ProgramValues.Ini_File """"
-	. " /NewVersion_Link=""" newVersionLink """"
-	ExitApp
-}
-
-Fade_Tray_Notification() {
-	transparency := 255
-
-	Gui, TrayNotification:+LastFound
-
-	Loop {
-		transparency -= 5
-		WinSet, Transparent,% transparency
-		if !(transparency)
-			Break
-		Sleep 1
+	if (!ErrorLevel) {
+		Run,% ProgramValues.Updater_File 
+		. " /Name=""" ProgramValues.Name  """"
+		. " /File_Name=""" ProgramValues.Name ".exe" """"
+		. " /Local_Folder=""" ProgramValues.Local_Folder """"
+		. " /Ini_File=""" ProgramValues.Ini_File """"
+		. " /NewVersion_Link=""" newVersionLink """"
+		ExitApp
 	}
-	Gui, TrayNotification:Destroy
+	else {
+		Tray_Notifications_Show("Failed to download the updater.", "There was an issue while downloading the updater.`nPlease try again later, or try updating manually.")
+	}
 }
 
 ; GUI_Trades_Set_NewMsg ,GUI_Trades_Set_InArea: Both default to 1
@@ -6920,18 +7117,6 @@ GUI_Trades_Update_Tab_Style(tabId) {
 
 }
 
-
-; For Debugging, pause script and output a  message to MsgBox
-Pause_MSG(msg = "") {
-	if (msg != "") {
-		MsgBox, 0, Paused, % msg
-	}
-	Pause
-}
-if (programValues["Debug"]) {
-	Pause::Pause
-	ScrollLock::Gui_Trades_Update_Tabs()
-}
 
 #Include %A_ScriptDir%/Resources/AHK/
 #Include BinaryEncodingDecoding.ahk
