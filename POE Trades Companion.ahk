@@ -982,7 +982,7 @@ Gui_Trades(mode="", tradeInfos="") {
 
 ; - - - - - TC_Symbols buttons
 		Gui, Tab
-		Gui, Font,% "S" 20*scaleMult,% "TC_Symbols"
+		Gui, Font,% "S" 10*scaleMult,% "TC_Symbols"
 		fontChars := {Clipboard:"0", Whisper:"1", Invite:"2", Trade:"3", Kick:"4"}
 		fontCharsID := {1:"Clipboard",2:"Whisper",3:"Invite",4:"Trade",5:"Kick"}
 		for btnID, btnType in fontCharsID {
@@ -6121,55 +6121,6 @@ Extract_Assets() {
 	global ProgramValues
 	static 0 ; Bypass warning "local same as global" for var 0
 
-<<<<<<< HEAD
-	fontsFolder := ProgramValues.Fonts_Folder
-
-	if FileExist(fontsFolder "\TC-Symbols.*")
-		FileDelete,% fontsFolder "\TC-Symbols.*"
-	FileInstall, Resources\Fonts\TC_Symbols.ttf,% fontsFolder "\TC_Symbols.ttf", 1
-
-	FileInstall, Resources\Fonts\Fontin-SmallCaps.ttf,% fontsFolder "\Fontin-SmallCaps.ttf", 1
-	FileInstall, Resources\Fonts\Consolas.ttf,% fontsFolder "\Consolas.ttf", 1
-	FileInstall, Resources\Fonts\Segoe UI.ttf,% fontsFolder "\Segoe UI.ttf", 1
-
-	FileInstall, Resources\Fonts\Settings.ini,% fontsFolder "\Settings.ini", 1
-	FileInstall, Resources\Fonts\FontReg.exe,% fontsFolder "\FontReg.exe", 0
-}
-
-Extract_Skin_Files() {
-/*			Include the default skins into the compiled executable
- *			Extracts the included skins into the skins Folder
-*/
-	global ProgramValues
-	skinFolder := ProgramValues.Skins_Folder
-
-	skinNames := {}
-	fromfolder = %A_WorkingDir%\Resources\Skins
-	fileInstallScript = %A_WorkingDir%\File_Install.ahk
-	; If script is not compiled, create a file install script from ./Resources/Skins
-	if (!A_IsCompiled) {
-		if FileExist(fileInstallScript)
-			FileDelete % fileInstallScript
-
-		loop %fromFolder%\* , 2 
-			skinNames.Insert(A_LoopFileName)
-
-		for index, skinName in skinNames {
-			FileAppend, if !( InStr(FileExist("%skinFolder%\%skinName%")`, "D") )`n, %fileInstallScript%
-			FileAppend, FileCreateDir`, %skinFolder%\%skinName%`n, %fileInstallScript%
-			loop %fromFolder%\%skinName%\*.*
-				{
-				if A_LoopFileExt in ini,png,jpg,ico
-					FileAppend, FileInstall`, %A_LoopFileFullPath%`,%skinFolder%\%skinName%\%A_LoopFileName%`, 1`n , %fileInstallScript%
-				}
-		}
-		if FileExist(fileInstallScript)
-			Run % fileInstallScript
-	}
-	; Include file install script if it is available. Make sure fileinstall script has been created when compiling or it wont run.
-	#Include *i File_Install.ahk
-}
-=======
 	if (A_IsCompiled) {
 		#Include, *i File_Install.ahk
 		Return
